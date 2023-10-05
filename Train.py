@@ -13,12 +13,30 @@ import os
 from argparse import ArgumentParser
 
 
+
+def evaluate(model, dataloader):
+    orient_loss_func = OrientationLoss
+    model.eval()
+    set_loss = 0
+    for local_batch, local_labels in dataloader:
+        truth_orient = local_labels["Orientation"].float().cuda()
+        truth_conf = local_labels["Confidence"].long().cuda()
+
+        local_batch = local_batch.float().cuda()
+        [orient, conf] = model(local_batch)
+        orient_loss = orient_loss_func(orient, truth_orient, truth_conf)
+        set_loss += orient_loss.item()
+    avg_loss = set_loss / len(dataloader)    
+    print(f"Average Orientation Loss: {avg_loss}")
+    model.train()
+    return
+
 def make_parser():
     parser = ArgumentParser()
     parser.add_argument(
         "-d",
         "--data",
-        default="/home/thoro-ml/work/ml/3D-BoundingBox/Pallet-dataset/training/",
+        default="/home/thoro-ml/work/ml/3D-BoundingBox/Pallet-dataset/",
         help="Path to data root",
     )
     parser.add_argument("-bs", "--batch-size", type=int, default=8, help="Batch size")
@@ -46,6 +64,19 @@ def make_parser():
         help="Path to save checkpoints",
         default="weights"
     )
+    parser.add_argument(
+        "-a",
+        "--alpha",
+        type=float,
+        default=0.6,
+        help="L_dims loss coefficient"
+    )
+    parser.add_argument(
+        "-w",
+        type=float,
+        default=0.4,
+        help="L_loc loss coefficient"
+    )
     return parser
 
 
@@ -56,26 +87,25 @@ def main():
     # hyper parameters
     epochs = args.epochs
     batch_size = args.batch_size
-    alpha = 0.6
-    w = 0.4
+    alpha = args.alpha # scale L_dims (see paper for details)
+    w = args.w # scale L_loc (see paper for details)
 
     print("Loading all detected objects in dataset...")
-    train_path = (
-        args.data
-    )
-    dataset = Dataset(train_path)
+    data_root = args.data
+    train_path = os.path.join(data_root, "training")
+    test_path = os.path.join(data_root, "testing")
+    train_dataset = Dataset(train_path)
+    test_dataset = Dataset(test_path)
     ## As well as batch_size and num_workers
-    params = {"batch_size": batch_size, "shuffle": True, "num_workers": 6}
-
-    generator = data.DataLoader(dataset, **params)
-
-    my_vgg = vgg.vgg19_bn(pretrained=True)
+    # params = {"batch_size": batch_size, "shuffle": True, "num_workers": 10}
+    train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=10)
+    test_loader = data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
+    my_vgg = vgg.vgg19_bn(weights=vgg.VGG19_BN_Weights.IMAGENET1K_V1)
     model = Model(features=my_vgg.features).cuda()
     opt_SGD = torch.optim.SGD(
         model.parameters(), lr=args.learning_rate, momentum=args.momentum
     )
     conf_loss_func = nn.CrossEntropyLoss().cuda()
-    dim_loss_func = nn.MSELoss().cuda()
     orient_loss_func = OrientationLoss
 
     first_epoch = 0
@@ -90,27 +120,23 @@ def main():
         )
         print("Resuming training....")
 
-    total_num_batches = int(len(dataset) / batch_size)
+    total_num_batches = int(len(train_dataset) / batch_size)
 
     for epoch in range(first_epoch + 1, epochs + 1):
         curr_batch = 0
         passes = 0
-        for local_batch, local_labels in generator:
+        for local_batch, local_labels in train_loader:
             truth_orient = local_labels["Orientation"].float().cuda()
             truth_conf = local_labels["Confidence"].long().cuda()
-            truth_dim = local_labels["Dimensions"].float().cuda()
 
             local_batch = local_batch.float().cuda()
-            [orient, conf, dim] = model(local_batch)
+            [orient, conf] = model(local_batch)
 
             orient_loss = orient_loss_func(orient, truth_orient, truth_conf)
-            dim_loss = dim_loss_func(dim, truth_dim)
-
             truth_conf = torch.max(truth_conf, dim=1)[1]
             conf_loss = conf_loss_func(conf, truth_conf)
 
-            loss_theta = conf_loss + w * orient_loss
-            loss = alpha * dim_loss + loss_theta
+            loss = conf_loss + w * orient_loss
 
             opt_SGD.zero_grad()
             loss.backward()
@@ -127,9 +153,11 @@ def main():
             curr_batch += 1
 
         # save after every 10 epochs
-        if epoch % 10 == 0:
+        if epoch % 2 == 0:
             name = os.path.join(args.save, f"epoch_{epoch}.pkl")
             print("====================")
+            print("Evaluating epoch %s" % epoch)
+            evaluate(model, test_loader)
             print("Done with epoch %s!" % epoch)
             print("Saving weights as %s ..." % name)
             torch.save(

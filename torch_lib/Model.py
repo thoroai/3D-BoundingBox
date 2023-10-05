@@ -42,17 +42,6 @@ class Model(nn.Module):
                     nn.ReLU(True),
                     nn.Dropout(),
                     nn.Linear(256, bins),
-                    # nn.Softmax()
-                    #nn.Sigmoid()
-                )
-        self.dimension = nn.Sequential(
-                    nn.Linear(512 * 7 * 7, 512),
-                    nn.ReLU(True),
-                    nn.Dropout(),
-                    nn.Linear(512, 512),
-                    nn.ReLU(True),
-                    nn.Dropout(),
-                    nn.Linear(512, 3)
                 )
 
     def forward(self, x):
@@ -62,5 +51,5 @@ class Model(nn.Module):
         orientation = orientation.view(-1, self.bins, 2)
         orientation = F.normalize(orientation, dim=2)
         confidence = self.confidence(x)
-        dimension = self.dimension(x)
-        return orientation, confidence, dimension
+
+        return orientation, confidence
