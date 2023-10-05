@@ -7,8 +7,9 @@ checkpoint = "/home/thoro-ml/work/ml/3D-BoundingBox/weights/epoch_2.pkl"
 backbone = vgg.vgg19_bn(weights=vgg.VGG19_BN_Weights.IMAGENET1K_V1)
 model = Model(features=backbone.features)
 ckpt = torch.load(checkpoint)
+# print(ckpt['model_state_dict'])
 model.load_state_dict(ckpt['model_state_dict'])
-fake_input = torch.randn((1, 3, 224, 224))
+fake_input = torch.randn((1, 1, 224, 224))
 
 torch.onnx.export(
     model,

@@ -291,7 +291,7 @@ class DetectedObject:
                                                 std=[0.229, 0.224, 0.225])
         process = transforms.Compose ([
             transforms.ToTensor(),
-            normalize
+            # normalize
         ])
 
         # crop image
@@ -299,8 +299,8 @@ class DetectedObject:
         pt2 = box_2d[1]
         crop = img[pt1[1]:pt2[1]+1, pt1[0]:pt2[0]+1]
         crop = cv2.resize(src = crop, dsize=(224, 224), interpolation=cv2.INTER_CUBIC)
-
+        crop_bw = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
         # recolor, reformat
-        batch = process(crop)
+        batch = process(crop_bw)
 
         return batch

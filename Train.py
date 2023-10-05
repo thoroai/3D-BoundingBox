@@ -1,18 +1,24 @@
 from torch_lib.Dataset import *
-from torch_lib.Model import Model, OrientationLoss
+from torch_lib.Model import Model, OrientationLoss, VGG16
 
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-from torchvision.models import vgg
+# from torch.autograd import Variable
+# from torchvision.models import vgg
 from torch.utils import data
 
 
 import os
 from argparse import ArgumentParser
 
-
+def intersect_dicts(da, db, exclude=()):
+    # Dictionary intersection of matching keys and shapes, omitting 'exclude' keys, using da values
+    return {
+        k: v
+        for k, v in da.items()
+        if k in db and not any(x == k for x in exclude) and v.shape == db[k].shape
+    }
 
 def evaluate(model, dataloader):
     orient_loss_func = OrientationLoss
@@ -100,8 +106,9 @@ def main():
     # params = {"batch_size": batch_size, "shuffle": True, "num_workers": 10}
     train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=10)
     test_loader = data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
-    my_vgg = vgg.vgg19_bn(weights=vgg.VGG19_BN_Weights.IMAGENET1K_V1)
-    model = Model(features=my_vgg.features).cuda()
+    # my_vgg = vgg.vgg19_bn(weights=vgg.VGG19_BN_Weights.IMAGENET1K_V1)
+    backbone = VGG16(in_channels=1)
+    model = Model(features=backbone.features).cuda()
     opt_SGD = torch.optim.SGD(
         model.parameters(), lr=args.learning_rate, momentum=args.momentum
     )
@@ -110,14 +117,14 @@ def main():
 
     first_epoch = 0
     if args.checkpoint is not None:
+        print(
+            "Found previous checkpoint: %s at epoch %s" % (args.checkpoint, first_epoch)
+        )
         checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(checkpoint["model_state_dict"])
         opt_SGD.load_state_dict(checkpoint["optimizer_state_dict"])
         first_epoch = checkpoint["epoch"]
         loss = checkpoint["loss"]
-        print(
-            "Found previous checkpoint: %s at epoch %s" % (args.checkpoint, first_epoch)
-        )
         print("Resuming training....")
 
     total_num_batches = int(len(train_dataset) / batch_size)
